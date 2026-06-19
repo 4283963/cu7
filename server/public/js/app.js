@@ -48,7 +48,29 @@
   const renderer = new SS.CanvasRenderer(el.mapCanvas, el.overlayCanvas);
 
   let pendingMode = 'none';
+  let actionLock = false;
   let animStart = 0;
+
+  function withActionLock(fn) {
+    if (actionLock) {
+      logBattle('warn', '上一项指令正在处理中，请稍候...');
+      return;
+    }
+    actionLock = true;
+    updateCommandButtons(client.state);
+    const done = () => { actionLock = false; updateCommandButtons(client.state); };
+    try {
+      const r = fn();
+      if (r && typeof r.then === 'function') {
+        r.then(done, done);
+      } else {
+        done();
+      }
+    } catch (e) {
+      done();
+      throw e;
+    }
+  }
 
   function init() {
     const host = window.location.host || 'localhost:8080';
@@ -364,11 +386,11 @@
     const isMine = client.me && ship && ship.ownerId === client.me.playerId;
     const ap = s.apPools && client.me ? s.apPools[client.me.playerId] : null;
 
-    el.cmdAttack.disabled = !(isMyTurn && isMine && ship && !ship.isDestroyed && !ship.hasAttackedThisTurn && ap && ap.remaining >= ap.attackCost);
-    el.cmdRepair.disabled = !(isMyTurn && isMine && ship && !ship.isDestroyed && ap && ap.remaining >= ap.repairCost);
-    el.cmdShield.disabled = !(isMyTurn && isMine && ship && !ship.isDestroyed && ap && ap.remaining >= ap.shieldRegenCost);
-    el.cmdUndo.disabled = !(isMyTurn && s.tsm && s.tsm.actionsThisTurn && s.tsm.actionsThisTurn.length > 0 && s.tsm.actionsThisTurn[s.tsm.actionsThisTurn.length - 1].playerId === client.me.playerId);
-    el.cmdEndTurn.disabled = !isMyTurn;
+    el.cmdAttack.disabled = actionLock || !(isMyTurn && isMine && ship && !ship.isDestroyed && !ship.hasAttackedThisTurn && ap && ap.remaining >= ap.attackCost);
+    el.cmdRepair.disabled = actionLock || !(isMyTurn && isMine && ship && !ship.isDestroyed && ap && ap.remaining >= ap.repairCost);
+    el.cmdShield.disabled = actionLock || !(isMyTurn && isMine && ship && !ship.isDestroyed && ap && ap.remaining >= ap.shieldRegenCost);
+    el.cmdUndo.disabled = actionLock || !(isMyTurn && s.tsm && s.tsm.actionsThisTurn && s.tsm.actionsThisTurn.length > 0 && s.tsm.actionsThisTurn[s.tsm.actionsThisTurn.length - 1].playerId === client.me.playerId);
+    el.cmdEndTurn.disabled = actionLock || !isMyTurn;
 
     el.cmdAttack.textContent = pendingMode === 'attack' ? '🎯 选择攻击目标...' : '⚔ 攻击';
     el.cmdAttack.style.background = pendingMode === 'attack' ? 'rgba(239,68,68,0.2)' : '';
@@ -376,6 +398,7 @@
   }
 
   function onCmdAttack() {
+    if (actionLock) return;
     if (pendingMode === 'attack') { pendingMode = 'none'; updateCommandButtons(client.state); return; }
     pendingMode = 'attack';
     logBattle('sys', '请点击红色范围内的敌舰进行攻击，右键取消');
@@ -383,26 +406,26 @@
   }
   function onCmdRepair() {
     const id = renderer.selectedShipId; if (!id) return;
-    client.repair(id, 18, 10).then(() => {
+    withActionLock(() => client.repair(id, 18, 10).then(() => {
       logBattle('good', '修复指令已发送');
-    }).catch((e) => logBattle('bad', '修复失败: ' + (e.reason || e.message)));
+    }).catch((e) => logBattle('bad', '修复失败: ' + (e.reason || e.message))));
   }
   function onCmdShield() {
     const id = renderer.selectedShipId; if (!id) return;
-    client.shieldRegen(id).then(() => {
+    withActionLock(() => client.shieldRegen(id).then(() => {
       logBattle('good', '护盾强化指令已发送');
-    }).catch((e) => logBattle('bad', '护盾强化失败: ' + (e.reason || e.message)));
+    }).catch((e) => logBattle('bad', '护盾强化失败: ' + (e.reason || e.message))));
   }
   function onCmdUndo() {
-    client.undo().then(() => {
+    withActionLock(() => client.undo().then(() => {
       logBattle('sys', '已撤销上一步操作');
-    }).catch((e) => logBattle('bad', '撤销失败: ' + (e.reason || e.message)));
+    }).catch((e) => logBattle('bad', '撤销失败: ' + (e.reason || e.message))));
   }
   function onCmdEndTurn() {
     pendingMode = 'none';
-    client.endTurn().then(() => {
+    withActionLock(() => client.endTurn().then(() => {
       logBattle('sys', '回合结束');
-    }).catch((e) => logBattle('bad', '结束回合失败: ' + (e.reason || e.message)));
+    }).catch((e) => logBattle('bad', '结束回合失败: ' + (e.reason || e.message))));
   }
 
   function clearSelection() {
@@ -464,10 +487,10 @@
       if (selShip && ship.ownerId !== selShip.ownerId) {
         const d = manhattan(selShip.coord, ship.coord);
         if (d >= selShip.baseAttackMinRange && d <= selShip.baseAttackMaxRange) {
-          client.attack(selShip.id, ship.id).then(() => {
+          withActionLock(() => client.attack(selShip.id, ship.id).then(() => {
             pendingMode = 'none';
             updateCommandButtons(client.state);
-          }).catch((err) => logBattle('bad', '攻击失败: ' + (err.reason || err.message)));
+          }).catch((err) => logBattle('bad', '攻击失败: ' + (err.reason || err.message))));
           return;
         } else {
           logBattle('warn', `目标超出攻击范围 (${d}/${selShip.baseAttackMaxRange})`);
@@ -489,10 +512,10 @@
       const reachable = computeReachableClient(client.state.map, selShip.coord, selShip.baseMoveRange, selShip.id);
       const path = reconstructPath(reachable, cell);
       if (path && path.length > 1) {
-        client.move(selShip.id, path.map(p => ({ x: p.x, y: p.y }))).then(() => {
+        withActionLock(() => client.move(selShip.id, path.map(p => ({ x: p.x, y: p.y }))).then(() => {
           logBattle('sys', `移动至 ${coordLabel(cell.x, cell.y)}`);
           renderer.setHover(null, null);
-        }).catch((err) => logBattle('bad', '移动失败: ' + (err.reason || err.message)));
+        }).catch((err) => logBattle('bad', '移动失败: ' + (err.reason || err.message))));
         return;
       }
     }

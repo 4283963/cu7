@@ -181,11 +181,19 @@ class GameRoom {
       return this._sendErr(player.id, ERROR_CODE.INVALID_PHASE, `规划阶段暂不可用`, msg.id);
     if (!this.tsm.isPlayerTurn(player.id))
       return this._sendErr(player.id, ERROR_CODE.NOT_YOUR_TURN, '不是你的回合', msg.id);
-    return null;
+    return false;
+  }
+
+  _assertMyTurn(player, msg) {
+    if (!this.tsm || this.tsm.currentPlayerId !== player.id) {
+      return this._sendErr(player.id, ERROR_CODE.NOT_YOUR_TURN, '不是你的回合', msg.id);
+    }
+    return false;
   }
 
   _handleRequestMove(player, msg) {
     const block = this._ensureGamePhase(player, msg); if (block) return block;
+    const myTurnBlock = this._assertMyTurn(player, msg); if (myTurnBlock) return myTurnBlock;
     const { shipId: sid, path } = msg.payload;
     const ship = this.ships.get(sid);
     if (!ship) return this._sendErr(player.id, ERROR_CODE.SHIP_NOT_FOUND, '舰艇不存在', msg.id);
@@ -220,11 +228,13 @@ class GameRoom {
       return this._sendErr(player.id, ERROR_CODE.NOT_ENOUGH_AP, `行动点不足(需${apCost})`, msg.id);
 
     const from = ship.coord.clone();
+    if (!this.tsm.recordAction({
+      type: ACTION_TYPE.MOVE, shipId: ship.id, from: { x: from.x, y: from.y }, to: { x: target.x, y: target.y }
+    })) {
+      return this._sendErr(player.id, ERROR_CODE.NOT_ENOUGH_AP, '行动点扣除失败，移动取消', msg.id);
+    }
     this.map.moveOccupant(ship.coord, target, ship.id);
     ship.moveTo(target, facing);
-    this.tsm.recordAction({
-      type: ACTION_TYPE.MOVE, shipId: ship.id, from: { x: from.x, y: from.y }, to: { x: target.x, y: target.y }
-    });
 
     this._sendTo(player.id, this.codec.encode(MSG_TYPE.S2C.ACTION_VALIDATED, {
       action: 'move', success: true, shipId: ship.id, apCost
@@ -238,6 +248,7 @@ class GameRoom {
 
   _handleRequestAttack(player, msg) {
     const block = this._ensureGamePhase(player, msg); if (block) return block;
+    const myTurnBlock = this._assertMyTurn(player, msg); if (myTurnBlock) return myTurnBlock;
     const { shipId: sid, targetId } = msg.payload;
     const attacker = this.ships.get(sid);
     const target = this.ships.get(targetId);
@@ -255,6 +266,14 @@ class GameRoom {
     if (!this.tsm.canPerformAction(ACTION_TYPE.ATTACK, attacker.id))
       return this._sendErr(player.id, ERROR_CODE.NOT_ENOUGH_AP, '行动点不足', msg.id);
 
+    const apCost = this.tsm.getActionCost(ACTION_TYPE.ATTACK);
+    if (!this.tsm.recordAction({
+      type: ACTION_TYPE.ATTACK, shipId: attacker.id, targetId: target.id
+    })) {
+      return this._sendErr(player.id, ERROR_CODE.NOT_ENOUGH_AP, '行动点扣除失败，攻击取消', msg.id);
+    }
+    attacker.hasAttackedThisTurn = true;
+
     const terrainDef = this.map.getDefenseBonus(target.coord);
     const damageResult = DamageCalculator.computeAttackDamage(attacker, target, {
       distance: dist,
@@ -263,13 +282,6 @@ class GameRoom {
       attackerFacing: attacker.facing,
       targetCoord: target.coord
     });
-
-    const apCost = this.tsm.getActionCost(ACTION_TYPE.ATTACK);
-    this.tsm.recordAction({
-      type: ACTION_TYPE.ATTACK, shipId: attacker.id, targetId: target.id,
-      damageResult: { ...damageResult, log: undefined }
-    });
-    attacker.hasAttackedThisTurn = true;
 
     this._sendTo(player.id, this.codec.encode(MSG_TYPE.S2C.ACTION_VALIDATED, {
       action: 'attack', success: true, shipId: attacker.id, apCost
@@ -289,6 +301,7 @@ class GameRoom {
 
   _handleRequestRepair(player, msg) {
     const block = this._ensureGamePhase(player, msg); if (block) return block;
+    const myTurnBlock = this._assertMyTurn(player, msg); if (myTurnBlock) return myTurnBlock;
     const { shipId: sid, hullAmount, armorAmount } = msg.payload;
     const ship = this.ships.get(sid);
     if (!ship) return this._sendErr(player.id, ERROR_CODE.SHIP_NOT_FOUND, '舰艇不存在', msg.id);
@@ -297,11 +310,13 @@ class GameRoom {
     if (!this.tsm.canPerformAction(ACTION_TYPE.REPAIR, ship.id))
       return this._sendErr(player.id, ERROR_CODE.NOT_ENOUGH_AP, '行动点不足', msg.id);
 
+    if (!this.tsm.recordAction({ type: ACTION_TYPE.REPAIR, shipId: ship.id })) {
+      return this._sendErr(player.id, ERROR_CODE.NOT_ENOUGH_AP, '行动点扣除失败，修复取消', msg.id);
+    }
     const hull = (hullAmount | 0) || 15;
     const armor = (armorAmount | 0) || 8;
     const result = ship.repair(hull, armor);
 
-    this.tsm.recordAction({ type: ACTION_TYPE.REPAIR, shipId: ship.id, hullRecovered: result.hullRecovered, armorRecovered: result.armorRecovered });
     this._sendTo(player.id, this.codec.encode(MSG_TYPE.S2C.ACTION_VALIDATED, {
       action: 'repair', success: true, shipId: ship.id
     }, { replyTo: msg.id }));
@@ -311,6 +326,7 @@ class GameRoom {
 
   _handleRequestShieldRegen(player, msg) {
     const block = this._ensureGamePhase(player, msg); if (block) return block;
+    const myTurnBlock = this._assertMyTurn(player, msg); if (myTurnBlock) return myTurnBlock;
     const { shipId: sid, amount } = msg.payload;
     const ship = this.ships.get(sid);
     if (!ship) return this._sendErr(player.id, ERROR_CODE.SHIP_NOT_FOUND, '舰艇不存在', msg.id);
@@ -319,10 +335,12 @@ class GameRoom {
     if (!this.tsm.canPerformAction(ACTION_TYPE.SHIELD_REGEN, ship.id))
       return this._sendErr(player.id, ERROR_CODE.NOT_ENOUGH_AP, '行动点不足', msg.id);
 
+    if (!this.tsm.recordAction({ type: ACTION_TYPE.SHIELD_REGEN, shipId: ship.id })) {
+      return this._sendErr(player.id, ERROR_CODE.NOT_ENOUGH_AP, '行动点扣除失败，护盾强化取消', msg.id);
+    }
     const amt = amount !== undefined ? (amount | 0) : Math.round(ship.shieldRegenPerTurn * 2);
     const recovered = ship.regenShield(amt);
 
-    this.tsm.recordAction({ type: ACTION_TYPE.SHIELD_REGEN, shipId: ship.id, recovered });
     this._sendTo(player.id, this.codec.encode(MSG_TYPE.S2C.ACTION_VALIDATED, {
       action: 'shield_regen', success: true, shipId: ship.id
     }, { replyTo: msg.id }));
@@ -332,6 +350,7 @@ class GameRoom {
 
   _handleUndo(player, msg) {
     const block = this._ensureGamePhase(player, msg); if (block) return block;
+    const myTurnBlock = this._assertMyTurn(player, msg); if (myTurnBlock) return myTurnBlock;
     const last = this.tsm.actionsThisTurn[this.tsm.actionsThisTurn.length - 1];
     if (!last || last.playerId !== player.id)
       return this._sendErr(player.id, ERROR_CODE.CANNOT_UNDO, '无可撤销的操作', msg.id);
@@ -351,6 +370,7 @@ class GameRoom {
 
   _handleEndTurn(player, msg) {
     const block = this._ensureGamePhase(player, msg); if (block) return block;
+    const myTurnBlock = this._assertMyTurn(player, msg); if (myTurnBlock) return myTurnBlock;
     const r = this.tsm.endTurn();
     if (!r) return this._sendErr(player.id, ERROR_CODE.INVALID_PHASE, '无法结束回合', msg.id);
     this._sendTo(player.id, this.codec.encode(MSG_TYPE.S2C.ACTION_VALIDATED, {
@@ -428,6 +448,7 @@ class GameRoom {
 
   _sendErr(playerId, code, reason, replyTo = null) {
     this._sendTo(playerId, this.codec.makeError(code, reason, replyTo));
+    return true;
   }
 
   _broadcast(type, payload, meta = {}) {
