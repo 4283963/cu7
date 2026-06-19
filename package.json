@@ -1,0 +1,13 @@
+{
+  "name": "steamship-battle",
+  "version": "0.1.0",
+  "description": "双人联机对战的蒸汽飞船走格子策略网页游戏 - 核心对战引擎",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node tests/run-tests.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

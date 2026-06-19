@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>蒸汽舰队 · 双人对战</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-icon">⚙️</span>
+        <span class="brand-title">蒸汽舰队 · Steam Fleet</span>
+      </div>
+      <div class="status-pills">
+        <span id="pingStatus" class="pill pill-neutral">Ping: --</span>
+        <span id="turnStatus" class="pill pill-waiting">等待玩家</span>
+        <span id="playerStatus" class="pill pill-info">未连接</span>
+      </div>
+    </header>
+
+    <div id="lobby" class="lobby">
+      <div class="lobby-card">
+        <h1 class="lobby-title">加入战斗</h1>
+        <p class="lobby-sub">配置身份后创建或加入房间</p>
+        <div class="field">
+          <label for="nameInput">指挥官姓名</label>
+          <input id="nameInput" type="text" maxlength="16" placeholder="输入姓名..." />
+        </div>
+        <div class="field">
+          <label for="serverUrl">服务器地址</label>
+          <input id="serverUrl" type="text" value="" placeholder="ws://..." />
+        </div>
+        <div class="field">
+          <label for="joinRoomId">房间号（可选，留空则匹配现有房间或新建）</label>
+          <input id="joinRoomId" type="text" placeholder="例如: A1B2" maxlength="12" />
+        </div>
+        <div class="lobby-actions">
+          <button id="btnJoin">快速加入 / 匹配</button>
+          <button id="btnCreate" class="secondary">创建新房间</button>
+        </div>
+        <div id="lobbyStatus" class="lobby-status"></div>
+      </div>
+    </div>
+
+    <main id="game" class="game hidden">
+      <aside class="panel panel-left">
+        <section class="panel-block">
+          <h3 class="block-title">战场</h3>
+          <div id="roomInfo" class="meta-line"></div>
+          <div id="turnInfo" class="turn-info">
+            <div class="turn-row"><span>回合</span><b id="turnNum">-</b></div>
+            <div class="turn-row"><span>阶段</span><b id="phaseName">-</b></div>
+          </div>
+        </section>
+        <section class="panel-block">
+          <h3 class="block-title">指挥官</h3>
+          <div id="playerList" class="player-list"></div>
+        </section>
+        <section class="panel-block">
+          <h3 class="block-title">我军舰队</h3>
+          <div id="myShips" class="ship-list"></div>
+        </section>
+        <section class="panel-block">
+          <h3 class="block-title">行动点</h3>
+          <div id="apBar" class="ap-bar">
+            <div class="ap-label"><span>本回合剩余</span><b id="apNum">- / -</b></div>
+            <div class="ap-costs">
+              <span class="ap-chip">移动 1</span>
+              <span class="ap-chip">攻击 3</span>
+              <span class="ap-chip">修复 4</span>
+              <span class="ap-chip">护盾 2</span>
+            </div>
+          </div>
+        </section>
+      </aside>
+
+      <section class="canvas-wrap">
+        <canvas id="mapCanvas"></canvas>
+        <canvas id="overlayCanvas" class="overlay"></canvas>
+        <div id="cellTooltip" class="cell-tooltip hidden"></div>
+        <div id="gameOverModal" class="modal hidden">
+          <div class="modal-card">
+            <h2 id="gameOverTitle">战斗结束</h2>
+            <p id="gameOverText"></p>
+            <button id="btnReturnToLobby" class="primary">返回大厅</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel panel-right">
+        <section class="panel-block">
+          <h3 class="block-title">当前舰艇</h3>
+          <div id="shipDetail" class="ship-detail empty">请选择一艘我方舰艇</div>
+        </section>
+        <section class="panel-block">
+          <h3 class="block-title">指令</h3>
+          <div class="commands">
+            <button id="cmdAttack" class="cmd" disabled>⚔ 攻击</button>
+            <button id="cmdRepair" class="cmd" disabled>🔧 修复</button>
+            <button id="cmdShield" class="cmd" disabled>🛡 护盾强化</button>
+            <button id="cmdUndo" class="cmd secondary" disabled>↶ 撤销移动</button>
+          </div>
+          <button id="cmdEndTurn" class="end-turn-btn">⏭ 结束回合</button>
+        </section>
+        <section class="panel-block">
+          <h3 class="block-title">战斗日志</h3>
+          <div id="battleLog" class="log"></div>
+        </section>
+        <section class="panel-block">
+          <h3 class="block-title">通讯频道</h3>
+          <div id="chatLog" class="chat"></div>
+          <form id="chatForm" class="chat-form">
+            <input id="chatInput" maxlength="180" placeholder="发送消息给队友/对手..." />
+            <button type="submit">发送</button>
+          </form>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="app-footer">
+      <span>左键选择 / 右键取消 · 蓝色格 = 可移动 · 红色格 = 攻击范围</span>
+    </footer>
+  </div>
+
+  <script src="js/shared.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
