@@ -39,6 +39,7 @@ const MSG_TYPE = Object.freeze({
     CHAT_BROADCAST: 's2c_chat_broadcast',
     PONG: 's2c_pong',
     STATE_SYNC: 's2c_state_sync',
+    WEATHER_CHANGED: 's2c_weather_changed',
     ERROR: 's2c_error'
   })
 });

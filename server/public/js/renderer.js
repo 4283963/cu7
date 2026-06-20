@@ -158,6 +158,50 @@
         this.ctx.fillRect(x + cs * 0.3, y + cs * 0.35, cs * 0.45, cs * 0.25);
         this.ctx.fillStyle = '#3f3325';
         this.ctx.fillRect(x + cs * 0.2, y + cs * 0.5, cs * 0.25, cs * 0.15);
+      } else if (terrain === 'supernova') {
+        const cx = x + cs * 0.5, cy = y + cs * 0.5;
+        const t = Date.now() / 1000;
+        for (let r = 0; r < 3; r++) {
+          const rad = cs * (0.12 + r * 0.1) + Math.sin(t * 2 + r) * cs * 0.02;
+          this.ctx.strokeStyle = `rgba(244, 114, 182, ${0.55 - r * 0.15})`;
+          this.ctx.lineWidth = 2;
+          this.ctx.beginPath();
+          this.ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+          this.ctx.stroke();
+        }
+        this.ctx.fillStyle = '#fff';
+        this.ctx.beginPath();
+        this.ctx.arc(cx, cy, cs * 0.06, 0, Math.PI * 2);
+        this.ctx.fill();
+      } else if (terrain === 'blackhole') {
+        const cx = x + cs * 0.5, cy = y + cs * 0.5;
+        const t = Date.now() / 800;
+        this.ctx.fillStyle = '#000';
+        this.ctx.beginPath();
+        this.ctx.arc(cx, cy, cs * 0.28, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.strokeStyle = 'rgba(139, 92, 246, 0.7)';
+        this.ctx.lineWidth = 2;
+        for (let i = 0; i < 3; i++) {
+          this.ctx.beginPath();
+          const startAngle = t + (i * Math.PI * 2 / 3);
+          this.ctx.arc(cx, cy, cs * 0.35 + i * 4, startAngle, startAngle + Math.PI * 1.2);
+          this.ctx.stroke();
+        }
+      } else if (terrain === 'meteor') {
+        this.ctx.fillStyle = '#78350f';
+        const rocks = [[0.25, 0.3, 0.09], [0.6, 0.5, 0.12], [0.35, 0.7, 0.08], [0.75, 0.25, 0.07]];
+        for (const [rx, ry, rr] of rocks) {
+          this.ctx.beginPath();
+          this.ctx.arc(x + cs * rx, y + cs * ry, cs * rr, 0, Math.PI * 2);
+          this.ctx.fill();
+        }
+        this.ctx.fillStyle = '#a16207';
+        for (const [rx, ry, rr] of rocks) {
+          this.ctx.beginPath();
+          this.ctx.arc(x + cs * rx - 1, y + cs * ry - 1, cs * rr * 0.6, 0, Math.PI * 2);
+          this.ctx.fill();
+        }
       }
       this.ctx.restore();
     }

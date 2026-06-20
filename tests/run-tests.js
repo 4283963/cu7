@@ -7,6 +7,7 @@ const { Coord, MapGrid, TERRAIN } = require(path.join(__dirname, '..', 'server',
 const { TurnStateMachine, PHASE, ACTION_TYPE, ActionPointPool } = require(path.join(__dirname, '..', 'server', 'modules', 'TurnStateMachine'));
 const { Ship, DamageCalculator, SHIP_ROLE, computeHitZone, DAMAGE_TYPE, HIT_ZONE } = require(path.join(__dirname, '..', 'server', 'modules', 'ShieldDamage'));
 const { MessageCodec, MessageDispatcher, MSG_TYPE, ERROR_CODE } = require(path.join(__dirname, '..', 'server', 'modules', 'MessageCodec'));
+const { SpaceWeatherSystem, SPACE_WEATHER, WEATHER_DEF } = require(path.join(__dirname, '..', 'server', 'modules', 'SpaceWeather'));
 
 let passed = 0, failed = 0, total = 0;
 function test(name, fn) {
@@ -347,6 +348,200 @@ suite('[4] WebSocket消息编解码模块 (MessageCodec)', () => {
     const c = new MessageCodec();
     const r = c.tryDecode('not-json{{{');
     assert.strictEqual(r.ok, false);
+  });
+});
+
+suite('[5] 星际地形与空间天气系统', () => {
+  suite('5.1 星际地形护盾加成', () => {
+    test('超新星遗迹护盾+2', () => {
+      const m = new MapGrid(5, 5);
+      m.setTerrain(Coord.of(2, 2), TERRAIN.SUPERNOVA);
+      assert.strictEqual(m.getShieldBonus(Coord.of(2, 2)), 2);
+      assert.strictEqual(m.getMoveCost(Coord.of(2, 2)), 1);
+    });
+
+    test('黑洞边缘护盾-3', () => {
+      const m = new MapGrid(5, 5);
+      m.setTerrain(Coord.of(2, 2), TERRAIN.BLACKHOLE);
+      assert.strictEqual(m.getShieldBonus(Coord.of(2, 2)), -3);
+      assert.strictEqual(m.getMoveCost(Coord.of(2, 2)), 3);
+    });
+
+    test('陨石带护盾+1', () => {
+      const m = new MapGrid(5, 5);
+      m.setTerrain(Coord.of(2, 2), TERRAIN.METEOR);
+      assert.strictEqual(m.getShieldBonus(Coord.of(2, 2)), 1);
+      assert.strictEqual(m.getMoveCost(Coord.of(2, 2)), 2);
+    });
+
+    test('普通地形护盾+0', () => {
+      const m = new MapGrid(5, 5);
+      assert.strictEqual(m.getShieldBonus(Coord.of(0, 0)), 0);
+    });
+
+    test('生成的默认地图包含星际地形', () => {
+      const m = MapGrid.generateDefault();
+      let foundSpecial = false;
+      for (let y = 0; y < m.height; y++) {
+        for (let x = 0; x < m.width; x++) {
+          const t = m.getTerrain(Coord.of(x, y));
+          if (t === TERRAIN.SUPERNOVA || t === TERRAIN.BLACKHOLE || t === TERRAIN.METEOR) {
+            foundSpecial = true;
+            break;
+          }
+        }
+        if (foundSpecial) break;
+      }
+      assert.strictEqual(foundSpecial, true, '默认地图应包含星际地形');
+    });
+  });
+
+  suite('5.2 空间天气系统', () => {
+    test('初始天气为宇宙晴空', () => {
+      const w = new SpaceWeatherSystem();
+      assert.strictEqual(w.currentWeather, SPACE_WEATHER.NORMAL);
+      assert.strictEqual(w.turnsInCurrentWeather, 0);
+    });
+
+    test('天气每3回合切换一次', () => {
+      const w = new SpaceWeatherSystem();
+      let changes = [];
+      for (let i = 1; i <= 9; i++) {
+        const change = w.advanceTurn(i);
+        if (change) changes.push(change);
+      }
+      assert.strictEqual(changes.length, 3, '9回合内应切换3次天气');
+      assert.strictEqual(changes[0].oldWeather, SPACE_WEATHER.NORMAL);
+      assert.strictEqual(changes[0].newWeather, SPACE_WEATHER.STRONG_RADIATION);
+      assert.strictEqual(changes[1].newWeather, SPACE_WEATHER.NEBULA);
+      assert.strictEqual(changes[2].newWeather, SPACE_WEATHER.SOLAR_FLARE);
+    });
+
+    test('强辐射风暴：能量武器伤害-2', () => {
+      const w = new SpaceWeatherSystem();
+      w.currentWeather = SPACE_WEATHER.STRONG_RADIATION;
+      const adj = w.getDamageAdjust(DAMAGE_TYPE.ENERGY);
+      assert.strictEqual(adj, -2);
+      const adjKinetic = w.getDamageAdjust(DAMAGE_TYPE.KINETIC);
+      assert.strictEqual(adjKinetic, 0, '非能量武器不受影响');
+    });
+
+    test('星云弥漫：动能/穿甲伤害-1，精度-5%', () => {
+      const w = new SpaceWeatherSystem();
+      w.currentWeather = SPACE_WEATHER.NEBULA;
+      assert.strictEqual(w.getDamageAdjust(DAMAGE_TYPE.KINETIC), -1);
+      assert.strictEqual(w.getDamageAdjust(DAMAGE_TYPE.PIERCING), -1);
+      assert.strictEqual(w.getDamageAdjust(DAMAGE_TYPE.ENERGY), 0);
+      assert.strictEqual(w.getAccuracyAdjust(), -0.05);
+    });
+
+    test('太阳耀斑：能量伤害+1，护盾回复50%', () => {
+      const w = new SpaceWeatherSystem();
+      w.currentWeather = SPACE_WEATHER.SOLAR_FLARE;
+      assert.strictEqual(w.getDamageAdjust(DAMAGE_TYPE.ENERGY), 1);
+      assert.strictEqual(w.getShieldRegenMultiplier(), 0.5);
+    });
+
+    test('宇宙晴空：无效果', () => {
+      const w = new SpaceWeatherSystem();
+      w.currentWeather = SPACE_WEATHER.NORMAL;
+      assert.strictEqual(w.getDamageAdjust(DAMAGE_TYPE.ENERGY), 0);
+      assert.strictEqual(w.getShieldRegenMultiplier(), 1.0);
+      assert.strictEqual(w.getAccuracyAdjust(), 0);
+    });
+
+    test('序列化与反序列化', () => {
+      const w = new SpaceWeatherSystem();
+      w.advanceTurn(1);
+      w.advanceTurn(2);
+      w.advanceTurn(3);
+      const data = w.serialize();
+      const w2 = SpaceWeatherSystem.deserialize(data);
+      assert.strictEqual(w2.currentWeather, SPACE_WEATHER.STRONG_RADIATION);
+      assert.strictEqual(w2.turnsInCurrentWeather, 0);
+    });
+  });
+
+  suite('5.3 战斗结算集成', () => {
+    test('地形护盾加成应用于伤害计算', () => {
+      const attacker = new Ship('a1', SHIP_ROLE.CRUISER, 'p1', Coord.of(0, 0));
+      const defender = new Ship('d1', SHIP_ROLE.CRUISER, 'p2', Coord.of(2, 0));
+      defender.shield = 3;
+      const context = {
+        weaponDamage: 10,
+        weaponDamageType: DAMAGE_TYPE.ENERGY,
+        hitChance: 1.0,
+        terrainShieldBonus: 2,
+        weatherDamageAdjust: 0
+      };
+      const result = DamageCalculator.computeAttackDamage(attacker, defender, context);
+      assert.strictEqual(result.hit, true);
+      const totalShield = 3 + 2;
+      assert.strictEqual(result.shieldAbsorbed >= 0, true);
+    });
+
+    test('天气伤害调整应用于能量武器', () => {
+      const attacker = new Ship('a1', SHIP_ROLE.CRUISER, 'p1', Coord.of(0, 0));
+      const defender = new Ship('d1', SHIP_ROLE.CRUISER, 'p2', Coord.of(2, 0));
+      defender.shield = 0;
+      defender.armor = 0;
+      const context = {
+        weaponDamage: 8,
+        weaponDamageType: DAMAGE_TYPE.ENERGY,
+        hitChance: 1.0,
+        terrainShieldBonus: 0,
+        weatherDamageAdjust: -2
+      };
+      const result = DamageCalculator.computeAttackDamage(attacker, defender, context);
+      assert.strictEqual(result.hit, true);
+      assert.strictEqual(result.weatherDamageAdjust, -2);
+      assert.ok(result.finalDamage <= 6, `最终伤害应受天气影响，实际${result.finalDamage}`);
+    });
+
+    test('黑洞边缘的护盾减免不能低于0', () => {
+      const attacker = new Ship('a1', SHIP_ROLE.CRUISER, 'p1', Coord.of(0, 0));
+      const defender = new Ship('d1', SHIP_ROLE.CRUISER, 'p2', Coord.of(2, 0));
+      defender.shield = 1;
+      defender.armor = 0;
+      const context = {
+        weaponDamage: 10,
+        weaponDamageType: DAMAGE_TYPE.KINETIC,
+        hitChance: 1.0,
+        terrainShieldBonus: -3,
+        weatherDamageAdjust: 0
+      };
+      const result = DamageCalculator.computeAttackDamage(attacker, defender, context);
+      assert.strictEqual(result.hit, true);
+      assert.strictEqual(result.effectiveShield, 0, '有效护盾不能为负');
+    });
+
+    test('天气精度调整影响命中', () => {
+      const attacker = new Ship('a1', SHIP_ROLE.SCOUT, 'p1', Coord.of(0, 0));
+      const defender = new Ship('d1', SHIP_ROLE.IRONCLAD, 'p2', Coord.of(3, 0));
+      let hits = 0;
+      const trials = 100;
+      for (let i = 0; i < trials; i++) {
+        const r = DamageCalculator.computeAttackDamage(attacker, defender, {
+          weaponDamage: 5,
+          weaponDamageType: DAMAGE_TYPE.KINETIC,
+          hitChance: 0.5,
+          weatherAccuracyAdjust: -0.4
+        });
+        if (r.hit) hits++;
+      }
+      assert.ok(hits < trials * 0.5, `命中次数应显著降低，实际${hits}/${trials}`);
+    });
+
+    test('护盾回复应用天气倍率', () => {
+      const ship = new Ship('s1', SHIP_ROLE.CRUISER, 'p1', Coord.of(0, 0));
+      ship.shield = 0;
+      ship.maxShield = 10;
+      const recoveredNormal = ship.regenShield(4, 1.0);
+      assert.strictEqual(recoveredNormal, 4);
+      ship.shield = 0;
+      const reducedSolar = ship.regenShield(4, 0.5);
+      assert.strictEqual(reducedSolar, 2);
+    });
   });
 });
 

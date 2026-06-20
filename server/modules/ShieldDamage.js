@@ -158,8 +158,8 @@ function computeHitZone(attackerCoord, attackerFacing, targetCoord) {
 }
 
 class DamageCalculator {
-  static rollAccuracy(accuracy, terrainBonus = 0) {
-    const effective = clamp(accuracy + terrainBonus * 0.03, 0.05, 0.98);
+  static rollAccuracy(accuracy, terrainBonus = 0, weatherAccuracyAdjust = 0) {
+    const effective = clamp(accuracy + terrainBonus * 0.03 + weatherAccuracyAdjust, 0.05, 0.98);
     return Math.random() < effective;
   }
 
@@ -185,6 +185,8 @@ class DamageCalculator {
       defenderArmorAfter: defender ? defender.armor : 0,
       destroyed: false,
       defenseBonus: 0,
+      terrainShieldBonus: 0,
+      weatherDamageAdjust: 0,
       log: []
     };
 
@@ -203,10 +205,21 @@ class DamageCalculator {
     const terrainDef = context.terrainDefenseBonus || 0;
     result.defenseBonus = terrainDef;
 
-    const hitRoll = this.rollAccuracy(atkStats.accuracy, -terrainDef);
+    const terrainShieldBonus = context.terrainShieldBonus || 0;
+    result.terrainShieldBonus = terrainShieldBonus;
+
+    const weatherDamageAdjust = context.weatherDamageAdjust || 0;
+    result.weatherDamageAdjust = weatherDamageAdjust;
+    const weatherAccuracyAdjust = context.weatherAccuracyAdjust || 0;
+
+    const accuracy = context.hitChance !== undefined ? context.hitChance : atkStats.accuracy;
+    const baseDamage = context.weaponDamage !== undefined ? context.weaponDamage : atkStats.baseDamage;
+    const damageType = context.weaponDamageType !== undefined ? context.weaponDamageType : atkStats.damageType;
+
+    const hitRoll = this.rollAccuracy(accuracy, -terrainDef, weatherAccuracyAdjust);
     if (!hitRoll) {
       result.hit = false;
-      result.log.push(`攻击未命中 (精度${(atkStats.accuracy * 100).toFixed(0)}% + 地形修正)`);
+      result.log.push(`攻击未命中 (精度${(accuracy * 100).toFixed(0)}% + 地形修正 + 天气修正)`);
       return result;
     }
     result.hit = true;
@@ -223,7 +236,7 @@ class DamageCalculator {
     result.crit = this.rollCritical(atkStats.critChance);
     if (result.crit) result.hitZone = HIT_ZONE.CRITICAL;
 
-    let dmg = atkStats.baseDamage;
+    let dmg = baseDamage;
     if (context.distance !== undefined && context.distance > atkStats.baseAttackMaxRange * 0.7) {
       dmg = Math.floor(dmg * 0.85);
     }
@@ -232,21 +245,33 @@ class DamageCalculator {
     }
     const critMultiplier = result.crit ? 1.8 : 1.0;
     dmg = Math.round(dmg * critMultiplier);
+
+    if (weatherDamageAdjust !== 0) {
+      dmg = Math.max(0, dmg + weatherDamageAdjust);
+      result.log.push(`天气修正: 伤害 ${weatherDamageAdjust > 0 ? '+' : ''}${weatherDamageAdjust}`);
+    }
+
     result.rawDamage = dmg;
     result.log.push(`命中! 命中区域: ${result.hitZone}${result.crit ? ' [暴击!]' : ''}, 基础伤害: ${dmg}`);
 
     const resists = defStats.resistances || {};
-    const resistMult = 1 - (resists[atkStats.damageType] || 0);
+    const resistMult = 1 - (resists[damageType] || 0);
     const resistedDamage = Math.round(dmg * (1 - resistMult));
     dmg = Math.round(dmg * resistMult);
     result.resistanceReduction = resistedDamage;
     if (resistedDamage !== 0) {
-      result.log.push(`抗性调整: ${defStats.name}对${atkStats.damageType}伤害抗性 ${((resists[atkStats.damageType] || 0) * 100).toFixed(0)}%, 减免${resistedDamage}`);
+      result.log.push(`抗性调整: ${defStats.name}对${damageType}伤害抗性 ${((resists[damageType] || 0) * 100).toFixed(0)}%, 减免${resistedDamage}`);
     }
 
-    if (defender.shield > 0) {
-      const absorbed = Math.min(defender.shield, dmg);
-      defender.shield -= absorbed;
+    if (terrainShieldBonus !== 0) {
+      result.log.push(`地形护盾: ${terrainShieldBonus > 0 ? '+' : ''}${terrainShieldBonus}`);
+    }
+    const effectiveShield = Math.max(0, defender.shield + terrainShieldBonus);
+    result.effectiveShield = effectiveShield;
+    if (effectiveShield > 0) {
+      const absorbed = Math.min(effectiveShield, dmg);
+      const actualShieldDrain = Math.min(defender.shield, absorbed);
+      defender.shield -= actualShieldDrain;
       dmg -= absorbed;
       result.shieldAbsorbed = absorbed;
       result.log.push(`护盾吸收: ${absorbed}, 剩余护盾: ${defender.shield}`);
@@ -322,8 +347,9 @@ class Ship {
     return this.hull / this.maxHull;
   }
 
-  regenShield(amount = null) {
-    const amt = amount !== null ? amount : this.shieldRegenPerTurn;
+  regenShield(amount = null, multiplier = 1.0) {
+    const baseAmount = amount !== null ? amount : this.shieldRegenPerTurn;
+    const amt = Math.round(baseAmount * multiplier);
     const before = this.shield;
     this.shield = Math.min(this.maxShield, this.shield + amt);
     return this.shield - before;

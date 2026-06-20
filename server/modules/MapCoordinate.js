@@ -5,7 +5,10 @@ const TERRAIN = Object.freeze({
   MOUNTAIN: 'mountain',
   WATER: 'water',
   FOREST: 'forest',
-  WRECK: 'wreck'
+  WRECK: 'wreck',
+  SUPERNOVA: 'supernova',
+  BLACKHOLE: 'blackhole',
+  METEOR: 'meteor'
 });
 
 const TERRAIN_COST = Object.freeze({
@@ -13,7 +16,10 @@ const TERRAIN_COST = Object.freeze({
   [TERRAIN.MOUNTAIN]: Infinity,
   [TERRAIN.WATER]: Infinity,
   [TERRAIN.FOREST]: 2,
-  [TERRAIN.WRECK]: 3
+  [TERRAIN.WRECK]: 3,
+  [TERRAIN.SUPERNOVA]: 1,
+  [TERRAIN.BLACKHOLE]: 3,
+  [TERRAIN.METEOR]: 2
 });
 
 const TERRAIN_DEFENSE = Object.freeze({
@@ -21,7 +27,21 @@ const TERRAIN_DEFENSE = Object.freeze({
   [TERRAIN.MOUNTAIN]: 0,
   [TERRAIN.WATER]: 0,
   [TERRAIN.FOREST]: 1,
-  [TERRAIN.WRECK]: 2
+  [TERRAIN.WRECK]: 2,
+  [TERRAIN.SUPERNOVA]: 0,
+  [TERRAIN.BLACKHOLE]: 1,
+  [TERRAIN.METEOR]: 2
+});
+
+const TERRAIN_SHIELD_BONUS = Object.freeze({
+  [TERRAIN.PLAIN]: 0,
+  [TERRAIN.MOUNTAIN]: 0,
+  [TERRAIN.WATER]: 0,
+  [TERRAIN.FOREST]: 0,
+  [TERRAIN.WRECK]: 0,
+  [TERRAIN.SUPERNOVA]: 2,
+  [TERRAIN.BLACKHOLE]: -3,
+  [TERRAIN.METEOR]: 1
 });
 
 class Coord {
@@ -99,11 +119,23 @@ class MapGrid {
     const waters = [
       [0, 0], [11, 9], [0, 9], [11, 0]
     ];
+    const supernovas = [
+      [2, 6], [9, 3]
+    ];
+    const blackholes = [
+      [6, 6]
+    ];
+    const meteors = [
+      [5, 2], [7, 8], [3, 4]
+    ];
 
     for (const [x, y] of mountains) map.setTerrain(Coord.of(x, y), TERRAIN.MOUNTAIN);
     for (const [x, y] of forests) map.setTerrain(Coord.of(x, y), TERRAIN.FOREST);
     for (const [x, y] of wrecks) map.setTerrain(Coord.of(x, y), TERRAIN.WRECK);
     for (const [x, y] of waters) map.setTerrain(Coord.of(x, y), TERRAIN.WATER);
+    for (const [x, y] of supernovas) map.setTerrain(Coord.of(x, y), TERRAIN.SUPERNOVA);
+    for (const [x, y] of blackholes) map.setTerrain(Coord.of(x, y), TERRAIN.BLACKHOLE);
+    for (const [x, y] of meteors) map.setTerrain(Coord.of(x, y), TERRAIN.METEOR);
 
     return map;
   }
@@ -129,6 +161,10 @@ class MapGrid {
 
   getDefenseBonus(coord) {
     return TERRAIN_DEFENSE[this.getTerrain(coord)] || 0;
+  }
+
+  getShieldBonus(coord) {
+    return TERRAIN_SHIELD_BONUS[this.getTerrain(coord)] || 0;
   }
 
   isBlocked(coord) {
@@ -292,6 +328,7 @@ module.exports = {
   TERRAIN,
   TERRAIN_COST,
   TERRAIN_DEFENSE,
+  TERRAIN_SHIELD_BONUS,
   Coord,
   DIRS,
   MapGrid

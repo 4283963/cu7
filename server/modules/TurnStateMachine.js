@@ -1,5 +1,7 @@
 'use strict';
 
+const { SpaceWeatherSystem, SPACE_WEATHER, WEATHER_DEF, WEATHER_CHANGE_INTERVAL } = require('./SpaceWeather');
+
 const PHASE = Object.freeze({
   WAITING: 'waiting',
   PLANNING: 'planning',
@@ -81,6 +83,7 @@ class TurnStateMachine {
     this.actedShips = new Set();
     this.winner = null;
     this._listeners = new Map();
+    this.weather = new SpaceWeatherSystem();
   }
 
   on(event, handler) {
@@ -245,6 +248,11 @@ class TurnStateMachine {
       this._emit('round_end', { roundNumber: this.roundNumber - 1 });
     }
 
+    const weatherChange = this.weather.advanceTurn(this.turnNumber);
+    if (weatherChange) {
+      this._emit('weather_change', weatherChange);
+    }
+
     this.actionsThisTurn = [];
     this.actedShips = new Set();
     this.phase = PHASE.PLANNING;
@@ -254,14 +262,16 @@ class TurnStateMachine {
     this._emit('turn_start', {
       playerId: this.currentPlayerId,
       turnNumber: this.turnNumber,
-      roundNumber: this.roundNumber
+      roundNumber: this.roundNumber,
+      weather: weatherChange ? weatherChange.newWeather : null
     });
 
     return {
       endedPlayerId,
       nextPlayerId: this.currentPlayerId,
       turnNumber: this.turnNumber,
-      roundNumber: this.roundNumber
+      roundNumber: this.roundNumber,
+      weatherChange
     };
   }
 
@@ -287,7 +297,8 @@ class TurnStateMachine {
       apPools: pools,
       actionsThisTurn: this.actionsThisTurn,
       actedShips: [...this.actedShips],
-      winner: this.winner
+      winner: this.winner,
+      weather: this.weather.serialize()
     };
   }
 
@@ -303,6 +314,9 @@ class TurnStateMachine {
     t.actionsThisTurn = data.actionsThisTurn || [];
     t.actedShips = new Set(data.actedShips || []);
     t.winner = data.winner;
+    if (data.weather) {
+      t.weather = SpaceWeatherSystem.deserialize(data.weather);
+    }
     return t;
   }
 }
@@ -311,5 +325,8 @@ module.exports = {
   PHASE,
   ACTION_TYPE,
   ActionPointPool,
-  TurnStateMachine
+  TurnStateMachine,
+  SPACE_WEATHER,
+  WEATHER_DEF,
+  WEATHER_CHANGE_INTERVAL
 };

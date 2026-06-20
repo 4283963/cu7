@@ -2,7 +2,7 @@
 
 (function () {
   const SS = window.SteamShip;
-  const { GameClient, MSG_TYPE, TERRAIN_STYLE, SHIP_STYLE, PHASE, manhattan, computeReachableClient, reconstructPath, buildCoordKey } = SS;
+  const { GameClient, MSG_TYPE, TERRAIN_STYLE, SHIP_STYLE, WEATHER_STYLE, PHASE, manhattan, computeReachableClient, reconstructPath, buildCoordKey } = SS;
 
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -17,6 +17,10 @@
     btnCreate: $('#btnCreate'),
     lobbyStatus: $('#lobbyStatus'),
     roomInfo: $('#roomInfo'),
+    weatherBar: $('#weatherBar'),
+    weatherIcon: $('#weatherIcon'),
+    weatherName: $('#weatherName'),
+    weatherDesc: $('#weatherDesc'),
     turnNum: $('#turnNum'),
     phaseName: $('#phaseName'),
     playerList: $('#playerList'),
@@ -219,6 +223,13 @@
       logBattle(win ? 'good' : 'bad', win ? '战斗胜利！' : '战斗失败');
     });
     client.on('state_sync', (s) => onStateSync(s));
+    client.on('weather_changed', (w) => {
+      const style = WEATHER_STYLE[w.newWeather] || WEATHER_STYLE.normal;
+      const oldStyle = WEATHER_STYLE[w.oldWeather] || WEATHER_STYLE.normal;
+      logBattle('sys', `🌤️ 空间天气变化：${oldStyle.icon} ${oldStyle.name} → ${style.icon} ${style.name}`);
+      logBattle('sys', `  新效果：${style.description}`);
+      updateWeather({ currentWeather: w.newWeather, turnsInCurrentWeather: 0 });
+    });
     client.on('chat', (m) => {
       const div = document.createElement('div');
       div.className = 'chat-entry';
@@ -248,12 +259,28 @@
       el.phaseName.textContent = phaseLabel(s.tsm.phase);
       updateTurnStatus(s.tsm.phase);
     }
+    updateWeather(s.weather);
     renderPlayerList(s);
     renderMyShips(s);
     renderAPBars(s);
     renderShipDetail(s);
     updateCommandButtons(s);
     updateRoomInfo(s);
+  }
+
+  function updateWeather(weather) {
+    if (!weather || !weather.currentWeather) {
+      el.weatherBar.classList.add('hidden');
+      return;
+    }
+    const style = WEATHER_STYLE[weather.currentWeather] || WEATHER_STYLE.normal;
+    el.weatherBar.classList.remove('hidden');
+    el.weatherBar.classList.remove('weather-normal', 'weather-strong_radiation', 'weather-nebula', 'weather-solar_flare');
+    el.weatherBar.classList.add('weather-' + weather.currentWeather);
+    el.weatherIcon.textContent = style.icon;
+    el.weatherName.textContent = style.name;
+    const turnsLeft = 3 - (weather.turnsInCurrentWeather % 3);
+    el.weatherDesc.textContent = `${style.description}（剩余 ${turnsLeft} 回合）`;
   }
 
   function updateTurnStatus(phase) {
@@ -454,7 +481,12 @@
     const occ = (map.occupied || {})[buildCoordKey(cell.x, cell.y)];
     const ship = occ ? (client.state.ships || []).find(s => s.id === occ) : null;
     let html = `<div class="tt-title">${coordLabel(cell.x, cell.y)}</div>`;
-    html += `<div class="tt-row">地形: ${ts.name || terr}${isFinite(ts.cost) ? ` (移动消耗${ts.cost})` : ' (不可通行)'}</div>`;
+    let terrainLine = `地形: ${ts.name || terr}${isFinite(ts.cost) ? ` (移动消耗${ts.cost})` : ' (不可通行)'}`;
+    if (ts.shieldBonus) {
+      const sign = ts.shieldBonus > 0 ? '+' : '';
+      terrainLine += ` · 护盾${sign}${ts.shieldBonus}`;
+    }
+    html += `<div class="tt-row">${terrainLine}</div>`;
     if (ship) {
       const st = SHIP_STYLE[ship.role] || {};
       const player = (client.state.players || []).find(p => p.id === ship.ownerId);

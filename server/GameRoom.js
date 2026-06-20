@@ -2,8 +2,9 @@
 
 const { MapGrid, Coord, TERRAIN } = require('./modules/MapCoordinate');
 const { TurnStateMachine, PHASE, ACTION_TYPE } = require('./modules/TurnStateMachine');
-const { Ship, DamageCalculator, SHIP_ROLE, SHIP_STAT_DEFS } = require('./modules/ShieldDamage');
+const { Ship, DamageCalculator, SHIP_ROLE, SHIP_STAT_DEFS, DAMAGE_TYPE } = require('./modules/ShieldDamage');
 const { MSG_TYPE, ERROR_CODE } = require('./modules/MessageCodec');
+const { WEATHER_DEF } = require('./modules/SpaceWeather');
 
 function roomId() {
   return 'R' + Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -71,13 +72,40 @@ class GameRoom {
     this.tsm.on('game_over', (p) => {
       this._broadcast(MSG_TYPE.S2C.GAME_OVER, p);
     });
+    this.tsm.on('weather_change', (p) => {
+      this._onWeatherChange(p);
+    });
+  }
+
+  _onWeatherChange(change) {
+    const weatherDef = WEATHER_DEF[change.newWeather];
+    const payload = {
+      oldWeather: change.oldWeather,
+      newWeather: change.newWeather,
+      name: weatherDef ? weatherDef.name : '未知',
+      icon: weatherDef ? weatherDef.icon : '?',
+      description: weatherDef ? weatherDef.description : ''
+    };
+    this._broadcast(MSG_TYPE.S2C.WEATHER_CHANGED, payload);
+    this._broadcastState();
   }
 
   _onTurnStart(info) {
+    const shieldMult = this.tsm.weather.getShieldRegenMultiplier();
     for (const ship of this.ships.values()) {
       if (ship.ownerId === info.playerId && !ship.isDestroyed) {
         ship.resetTurnState();
-        ship.regenShield();
+        ship.regenShield(null, shieldMult);
+      }
+    }
+    if (info.weather) {
+      const weatherDef = WEATHER_DEF[info.weather];
+      if (weatherDef) {
+        this._addChatLog({
+          playerId: null, playerName: '系统',
+          message: `天气变化: ${weatherDef.icon} ${weatherDef.name} - ${weatherDef.description}`,
+          ts: Date.now()
+        });
       }
     }
     this._broadcast(MSG_TYPE.S2C.TURN_START, info);
@@ -274,10 +302,17 @@ class GameRoom {
     }
     attacker.hasAttackedThisTurn = true;
 
+    const atkStats = SHIP_STAT_DEFS[attacker.role];
+    const weatherDamageAdjust = this.tsm.weather.getDamageAdjust(atkStats.damageType);
+    const weatherAccuracyAdjust = this.tsm.weather.getAccuracyAdjust();
     const terrainDef = this.map.getDefenseBonus(target.coord);
+    const terrainShieldBonus = this.map.getShieldBonus(target.coord);
     const damageResult = DamageCalculator.computeAttackDamage(attacker, target, {
       distance: dist,
       terrainDefenseBonus: terrainDef,
+      terrainShieldBonus: terrainShieldBonus,
+      weatherDamageAdjust: weatherDamageAdjust,
+      weatherAccuracyAdjust: weatherAccuracyAdjust,
       attackerCoord: attacker.coord,
       attackerFacing: attacker.facing,
       targetCoord: target.coord
@@ -339,7 +374,8 @@ class GameRoom {
       return this._sendErr(player.id, ERROR_CODE.NOT_ENOUGH_AP, '行动点扣除失败，护盾强化取消', msg.id);
     }
     const amt = amount !== undefined ? (amount | 0) : Math.round(ship.shieldRegenPerTurn * 2);
-    const recovered = ship.regenShield(amt);
+    const shieldMult = this.tsm.weather.getShieldRegenMultiplier();
+    const recovered = ship.regenShield(amt, shieldMult);
 
     this._sendTo(player.id, this.codec.encode(MSG_TYPE.S2C.ACTION_VALIDATED, {
       action: 'shield_regen', success: true, shipId: ship.id
@@ -379,6 +415,12 @@ class GameRoom {
     this._broadcastState();
   }
 
+  _addChatLog(entry) {
+    this.chatLog.push(entry);
+    if (this.chatLog.length > 50) this.chatLog.shift();
+    this._broadcast(MSG_TYPE.S2C.CHAT_BROADCAST, entry);
+  }
+
   _handleChat(player, msg) {
     const entry = {
       playerId: player.id,
@@ -386,9 +428,7 @@ class GameRoom {
       message: String(msg.payload.message || '').slice(0, 200),
       ts: Date.now()
     };
-    this.chatLog.push(entry);
-    if (this.chatLog.length > 50) this.chatLog.shift();
-    this._broadcast(MSG_TYPE.S2C.CHAT_BROADCAST, entry);
+    this._addChatLog(entry);
   }
 
   _handleSyncQuery(player, msg) {
@@ -419,6 +459,12 @@ class GameRoom {
     if (this.tsm) {
       for (const [pid, pool] of this.tsm.apPools) apPools[pid] = pool.serialize();
     }
+    const weatherSnap = this.tsm && this.tsm.weather ? {
+      ...this.tsm.weather.serialize(),
+      name: this.tsm.weather.name,
+      icon: this.tsm.weather.icon,
+      description: this.tsm.weather.description
+    } : null;
     return {
       roomId: this.id,
       roomName: this.name,
@@ -426,6 +472,7 @@ class GameRoom {
       map: this.map.serialize(),
       ships: [...this.ships.values()].map(s => s.serialize()),
       tsm: this.tsm ? this.tsm.serialize() : null,
+      weather: weatherSnap,
       apPools,
       selectedShipId: viewerId ? (this.selectedShips.get(viewerId) || null) : null,
       chatLog: this.chatLog.slice(-10)

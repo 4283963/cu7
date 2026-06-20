@@ -130,10 +130,56 @@ input { font-family: inherit; }
 }
 .meta-line { font-size: 13px; color: #cbd5e1; padding: 4px 0; }
 
-.turn-info { background: #0b1220; border-radius: 8px; padding: 10px 12px; border: 1px solid #1e293b; }
+.turn-info { background: #0b1220; border-radius: 8px; padding: 10px 12px; border: 1px solid #1e293b; margin-top: 10px; }
 .turn-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
 .turn-row span { color: #94a3b8; font-size: 12px; }
 .turn-row b { color: #f1f5f9; font-size: 14px; }
+
+.weather-bar {
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+  border-radius: 10px;
+  padding: 10px 12px;
+  border: 1px solid #4f46e5;
+  margin: 10px 0;
+  animation: weather-glow 2.5s ease-in-out infinite alternate;
+}
+@keyframes weather-glow {
+  from { box-shadow: 0 0 8px rgba(99, 102, 241, 0.2); }
+  to   { box-shadow: 0 0 16px rgba(99, 102, 241, 0.4); }
+}
+.weather-header { display: flex; align-items: center; gap: 10px; }
+.weather-icon { font-size: 28px; flex-shrink: 0; filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.3)); }
+.weather-meta { flex: 1; min-width: 0; }
+.weather-name { font-size: 14px; font-weight: 700; color: #c7d2fe; letter-spacing: 0.5px; }
+.weather-desc { font-size: 11px; color: #a5b4fc; margin-top: 2px; }
+
+.weather-bar.weather-strong_radiation {
+  background: linear-gradient(135deg, #7c2d12 0%, #991b1b 100%);
+  border-color: #dc2626;
+  animation-name: weather-glow-rad;
+}
+@keyframes weather-glow-rad {
+  from { box-shadow: 0 0 8px rgba(220, 38, 38, 0.2); }
+  to   { box-shadow: 0 0 16px rgba(220, 38, 38, 0.4); }
+}
+.weather-bar.weather-nebula {
+  background: linear-gradient(135deg, #1e1b4b 0%, #581c87 100%);
+  border-color: #a855f7;
+  animation-name: weather-glow-neb;
+}
+@keyframes weather-glow-neb {
+  from { box-shadow: 0 0 8px rgba(168, 85, 247, 0.2); }
+  to   { box-shadow: 0 0 16px rgba(168, 85, 247, 0.4); }
+}
+.weather-bar.weather-solar_flare {
+  background: linear-gradient(135deg, #78350f 0%, #92400e 100%);
+  border-color: #f59e0b;
+  animation-name: weather-glow-sol;
+}
+@keyframes weather-glow-sol {
+  from { box-shadow: 0 0 8px rgba(245, 158, 11, 0.2); }
+  to   { box-shadow: 0 0 16px rgba(245, 158, 11, 0.4); }
+}
 
 .player-list { display: flex; flex-direction: column; gap: 8px; }
 .player-card {

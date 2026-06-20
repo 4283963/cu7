@@ -40,6 +40,7 @@
       CHAT_BROADCAST: 's2c_chat_broadcast',
       PONG: 's2c_pong',
       STATE_SYNC: 's2c_state_sync',
+      WEATHER_CHANGED: 's2c_weather_changed',
       ERROR: 's2c_error'
     })
   });
@@ -71,15 +72,35 @@
     MOUNTAIN: 'mountain',
     WATER: 'water',
     FOREST: 'forest',
-    WRECK: 'wreck'
+    WRECK: 'wreck',
+    SUPERNOVA: 'supernova',
+    BLACKHOLE: 'blackhole',
+    METEOR: 'meteor'
   });
 
   const TERRAIN_STYLE = Object.freeze({
-    plain:    { name: '平原', fill: '#8fbc8f', grid: '#6b8e6b', cost: 1 },
-    mountain: { name: '山脉', fill: '#8a795d', grid: '#5a4d3a', cost: Infinity },
-    water:    { name: '水域', fill: '#5b9bd5', grid: '#3a6fa8', cost: Infinity },
-    forest:   { name: '森林', fill: '#3f704d', grid: '#2a4d35', cost: 2 },
-    wreck:    { name: '残骸', fill: '#a0826d', grid: '#6e5747', cost: 3 }
+    plain:    { name: '平原', fill: '#8fbc8f', grid: '#6b8e6b', cost: 1, shieldBonus: 0 },
+    mountain: { name: '山脉', fill: '#8a795d', grid: '#5a4d3a', cost: Infinity, shieldBonus: 0 },
+    water:    { name: '水域', fill: '#5b9bd5', grid: '#3a6fa8', cost: Infinity, shieldBonus: 0 },
+    forest:   { name: '森林', fill: '#3f704d', grid: '#2a4d35', cost: 2, shieldBonus: 0 },
+    wreck:    { name: '残骸', fill: '#a0826d', grid: '#6e5747', cost: 3, shieldBonus: 0 },
+    supernova:{ name: '超新星遗迹', fill: '#f472b6', grid: '#9d174d', cost: 1, shieldBonus: 2 },
+    blackhole:{ name: '黑洞边缘', fill: '#4c1d95', grid: '#1e1b4b', cost: 3, shieldBonus: -3 },
+    meteor:   { name: '陨石带', fill: '#f59e0b', grid: '#92400e', cost: 2, shieldBonus: 1 }
+  });
+
+  const SPACE_WEATHER = Object.freeze({
+    NORMAL: 'normal',
+    STRONG_RADIATION: 'strong_radiation',
+    NEBULA: 'nebula',
+    SOLAR_FLARE: 'solar_flare'
+  });
+
+  const WEATHER_STYLE = Object.freeze({
+    normal:           { name: '宇宙晴空', icon: '✨', description: '天气正常，无特殊效果' },
+    strong_radiation: { name: '强辐射风暴', icon: '☢️', description: '能量武器伤害 -2' },
+    nebula:           { name: '星云弥漫', icon: '🌫️', description: '动能/穿甲武器伤害 -1，精度 -5%' },
+    solar_flare:      { name: '太阳耀斑', icon: '☀️', description: '护盾回复效率 -50%，能量武器伤害 +1' }
   });
 
   const PHASE = Object.freeze({
@@ -253,6 +274,9 @@
             this._emit('latency', this.lastPingLatency);
           }
           break;
+        case MSG_TYPE.S2C.WEATHER_CHANGED:
+          this._emit('weather_changed', msg.payload);
+          break;
         case MSG_TYPE.S2C.ERROR:
           console.warn('Server error:', msg.payload);
           this._rejectSend(msg.replyTo, msg.payload);
@@ -354,7 +378,7 @@
     const startKey = buildCoordKey(start.x, start.y);
     result.set(startKey, { x: start.x, y: start.y, cost: 0, prev: null });
     const frontier = [{ x: start.x, y: start.y, cost: 0 }];
-    const costFor = (t) => ({ plain: 1, forest: 2, wreck: 3, mountain: Infinity, water: Infinity }[t] || 1);
+    const costFor = (t) => (TERRAIN_STYLE[t] && isFinite(TERRAIN_STYLE[t].cost)) ? TERRAIN_STYLE[t].cost : (TERRAIN_STYLE[t] ? Infinity : 1);
     const isBlocked = (x, y) => {
       if (x < 0 || y < 0 || x >= width || y >= height) return true;
       const t = terrains[buildCoordKey(x, y)] || 'plain';
@@ -396,8 +420,9 @@
     return path;
   }
 
-  global.SteamShip = {
+  global.SS = global.SteamShip = {
     MSG_TYPE, ERROR_CODE, TERRAIN, TERRAIN_STYLE, PHASE, SHIP_ROLE, SHIP_STYLE,
+    SPACE_WEATHER, WEATHER_STYLE,
     MessageCodec, GameClient,
     manhattan, buildCoordKey, computeReachableClient, reconstructPath
   };
